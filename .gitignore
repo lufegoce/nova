@@ -1,0 +1,15 @@
+# Secretos
+.env
+*.pem
+
+# Backend
+backend/storage/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/*.egg-info/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/next-env.d.ts

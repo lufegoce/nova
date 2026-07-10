@@ -1,0 +1,5 @@
+numero_factura,nit_emisor,razon_social_emisor,fecha_emision,total
+FE-1001,900123456,Suministros Andinos SAS,2026-07-01,1250000
+FE-1002,900654321,Tech Solutions Colombia SAS,2026-07-03,4800000
+FE-1003,900111222,Distribuidora El Faro Ltda,2026-07-05,320000
+FE-1004,900333444,Consultoria Financiera XYZ SAS,2026-07-07,9200000

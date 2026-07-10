@@ -1,0 +1,47 @@
+"""
+Configuración central de NOVA (variables de entorno).
+Nunca hardcodear credenciales: todo se lee de .env / entorno del contenedor.
+"""
+from functools import lru_cache
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # App
+    APP_NAME: str = "NOVA - Plataforma de Agentes Financieros"
+    ENV: str = "local"
+    DEBUG: bool = True
+
+    # Base de datos (Postgres + pgvector para memoria RAG de agentes)
+    DATABASE_URL: str = "postgresql+asyncpg://nova:nova@postgres:5432/nova"
+
+    # Redis / Celery (cola de tareas asíncronas para picos de fin de mes)
+    REDIS_URL: str = "redis://redis:6379/0"
+    CELERY_BROKER_URL: str = "redis://redis:6379/1"
+    CELERY_RESULT_BACKEND: str = "redis://redis:6379/2"
+
+    # Claude API (Agente Contable / Agente Receptor)
+    ANTHROPIC_API_KEY: str = ""
+    CLAUDE_MODEL: str = "claude-sonnet-5"
+
+    # Multi-tenancy: header con el ID del tenant en cada request
+    TENANT_HEADER: str = "X-Tenant-Id"
+
+    # DIAN (consulta periódica simulada vía CSV; ver app/services/dian_portal_connector.py
+    # para la integración real del catálogo de documentos recibidos)
+    DIAN_SIMULATED: bool = True
+    DIAN_MOCK_CSV_PATH: str = "app/services/dian_mock_facturas.csv"
+
+    # Almacenamiento de PDFs subidos manualmente (representaciones gráficas de factura)
+    PDF_STORAGE_DIR: str = "storage/facturas"
+
+    # Seguridad
+    JWT_SECRET: str = "CAMBIA_ESTO_EN_PRODUCCION"
+    JWT_ALGORITHM: str = "HS256"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
