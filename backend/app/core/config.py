@@ -37,9 +37,15 @@ class Settings(BaseSettings):
     # Almacenamiento de PDFs subidos manualmente (representaciones gráficas de factura)
     PDF_STORAGE_DIR: str = "storage/facturas"
 
-    # Seguridad
+    # Seguridad / autenticación (ver app/core/security.py)
     JWT_SECRET: str = "CAMBIA_ESTO_EN_PRODUCCION"
     JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRA_MINUTOS: int = 480
+    COOKIE_SESION: str = "nova_session"
+    COOKIE_SECURE: bool = False  # True en producción (HTTPS)
+
+    # Origen exacto del frontend: con cookies httpOnly, CORS no puede usar "*"
+    FRONTEND_ORIGIN: str = "http://localhost:3000"
 
 
 @lru_cache

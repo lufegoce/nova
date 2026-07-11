@@ -1,6 +1,8 @@
 """
-Configuración del tenant: por ahora, la integración con el ERP contable
-(SIIGO, Odoo, SAP Business One...) que se usa al aprobar y pagar una factura.
+Configuración del tenant: la integración con el ERP contable (SIIGO, Odoo,
+SAP Business One...) que se usa al aprobar y pagar una factura, y la
+integración con el PST (Factus) para consultar documentos recibidos sin
+pasar por el captcha del portal humano de la DIAN.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -9,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_tenant_id
 from app.db.session import get_db
 from app.models.erp import ConfiguracionErp
+from app.models.pst import ConfiguracionPst
 from app.schemas.erp import ConfiguracionErpOut, ConfiguracionErpRequest
+from app.schemas.pst import ConfiguracionPstOut, ConfiguracionPstRequest, DocumentoRecibidoPstOut
+from app.services.pst.base import ErrorConectorPst, FiltrosDocumentosRecibidos
+from app.services.pst.factory import obtener_conector_pst
 
 router = APIRouter(prefix="/configuracion", tags=["configuracion"])
 
@@ -31,6 +37,103 @@ async def obtener_configuracion_erp(
         actualizado_en=config.actualizado_en,
         campos_configurados=list(config.credenciales.keys()),
     )
+
+
+def _pst_a_out(config: ConfiguracionPst) -> ConfiguracionPstOut:
+    return ConfiguracionPstOut(
+        tipo_pst=config.tipo_pst,
+        activo=config.activo,
+        creado_en=config.creado_en,
+        actualizado_en=config.actualizado_en,
+        campos_configurados=list(config.credenciales.keys()),
+    )
+
+
+@router.get("/pst", response_model=ConfiguracionPstOut)
+async def obtener_configuracion_pst(
+    tenant_id: str = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(ConfiguracionPst).where(ConfiguracionPst.tenant_id == tenant_id))
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail="No hay PST configurado para este tenant")
+    return _pst_a_out(config)
+
+
+@router.put("/pst", response_model=ConfiguracionPstOut)
+async def guardar_configuracion_pst(
+    body: ConfiguracionPstRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(ConfiguracionPst).where(ConfiguracionPst.tenant_id == tenant_id))
+    config = result.scalar_one_or_none()
+
+    if config is None:
+        config = ConfiguracionPst(
+            tenant_id=tenant_id, tipo_pst=body.tipo_pst, credenciales=body.credenciales, activo=body.activo
+        )
+        db.add(config)
+    else:
+        config.tipo_pst = body.tipo_pst
+        config.credenciales = body.credenciales
+        config.activo = body.activo
+
+    await db.commit()
+    await db.refresh(config)
+    return _pst_a_out(config)
+
+
+@router.post("/pst/probar")
+async def probar_conexion_pst(
+    tenant_id: str = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Solo obtiene el token de acceso — confirma que las credenciales sirven, sin listar nada."""
+    result = await db.execute(select(ConfiguracionPst).where(ConfiguracionPst.tenant_id == tenant_id))
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail="No hay PST configurado para este tenant")
+
+    conector = obtener_conector_pst(config.tipo_pst, config.credenciales)
+    try:
+        await conector.probar_conexion()
+    except ErrorConectorPst as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok"}
+
+
+@router.get("/pst/documentos-recibidos", response_model=list[DocumentoRecibidoPstOut])
+async def listar_documentos_recibidos_pst(
+    solo_con_eventos_pendientes: bool | None = None,
+    tenant_id: str = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(ConfiguracionPst).where(ConfiguracionPst.tenant_id == tenant_id))
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail="No hay PST configurado para este tenant")
+
+    conector = obtener_conector_pst(config.tipo_pst, config.credenciales)
+    try:
+        documentos = await conector.listar_recibidos(
+            FiltrosDocumentosRecibidos(solo_con_eventos_pendientes=solo_con_eventos_pendientes)
+        )
+    except ErrorConectorPst as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return [
+        DocumentoRecibidoPstOut(
+            cufe=d.cufe,
+            nit_emisor=d.nit_emisor,
+            razon_social_emisor=d.razon_social_emisor,
+            numero_documento=d.numero_documento,
+            fecha_emision=d.fecha_emision,
+            tiene_eventos_pendientes=d.tiene_eventos_pendientes,
+        )
+        for d in documentos
+    ]
 
 
 @router.put("/erp", response_model=ConfiguracionErpOut)

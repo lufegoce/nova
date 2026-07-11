@@ -34,4 +34,8 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.escanear_seguridad_task",
         "schedule": crontab(minute="*/10"),
     },
+    "sincronizar-pst-periodicamente": {
+        "task": "app.workers.tasks.sincronizar_pst_task",
+        "schedule": crontab(minute="*/10"),
+    },
 }

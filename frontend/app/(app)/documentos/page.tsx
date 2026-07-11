@@ -14,8 +14,11 @@ import {
   type DocumentoDianListado,
   type DocumentoFinanciero,
 } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function DocumentosPage() {
+  const { sesion } = useAuth();
+  const tenantId = sesion?.empresa_actual?.tenant_id;
   const [documentos, setDocumentos] = useState<DocumentoFinanciero[]>([]);
   const [seleccionado, setSeleccionado] = useState<DocumentoFinanciero | null>(null);
   const [pdfEnPreview, setPdfEnPreview] = useState<DocumentoFinanciero | null>(null);
@@ -32,16 +35,22 @@ export default function DocumentosPage() {
 
   useEffect(() => {
     cargarDocumentos();
+    if (!tenantId) return;
 
-    const ws = conectarWebSocket((data) => {
+    const ws = conectarWebSocket(tenantId, (data) => {
       if (data.evento === "factura_nueva_dian") {
         setNotificacion(`DIAN: nueva factura ${data.factura?.numero_factura} recibida y acuse enviado.`);
         cargarDocumentos();
       }
+      if (data.evento === "documentos_nuevos_pst") {
+        setNotificacion(
+          `PST: ${data.cantidad} documento(s) nuevo(s) recibido(s) — actualiza el panel DIAN para verlos y subirlos.`
+        );
+      }
     });
 
     return () => ws.close();
-  }, [cargarDocumentos]);
+  }, [cargarDocumentos, tenantId]);
 
   const pendientes = documentos.filter((d) => d.estado === "aprobacion_pendiente").length;
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import type { DocumentoDianListado, DocumentoFinanciero } from "@/lib/api";
-import { ingestarFacturaPdf } from "@/lib/api";
+import { extraerDatosFacturaPdf, ingestarFacturaPdf } from "@/lib/api";
 
 interface Props {
   /** Si se abrió desde una fila del listado DIAN, se usa para precargar campos y enlazar el CUFE. */
@@ -13,10 +13,10 @@ interface Props {
 }
 
 /**
- * Formulario de ingesta manual del PDF descargado por el usuario desde el
- * portal real de la DIAN (después de resolver el captcha él mismo). La
- * extracción automática de campos desde un PDF arbitrario no es confiable,
- * así que el humano confirma NIT/total/número aquí.
+ * Formulario de ingesta manual del PDF descargado por el usuario (portal
+ * DIAN resolviendo captcha, o vía el PST). Al elegir el archivo, Claude lee
+ * el PDF directamente y propone NIT/razón social/número/total/CUFE — el
+ * usuario siempre puede revisar y corregir antes de confirmar.
  */
 export function UploadPdfModal({ origenDian, onCerrar, onSubido }: Props) {
   const [archivo, setArchivo] = useState<File | null>(null);
@@ -24,8 +24,37 @@ export function UploadPdfModal({ origenDian, onCerrar, onSubido }: Props) {
   const [razonSocial, setRazonSocial] = useState(origenDian?.razon_social_emisor ?? "");
   const [numeroFactura, setNumeroFactura] = useState(origenDian?.numero_documento ?? "");
   const [total, setTotal] = useState(origenDian?.total ?? "");
+  const [cufe, setCufe] = useState(origenDian?.cufe ?? "");
+  const [extrayendo, setExtrayendo] = useState(false);
+  const [avisoExtraccion, setAvisoExtraccion] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function alElegirArchivo(nuevoArchivo: File | null) {
+    setArchivo(nuevoArchivo);
+    setAvisoExtraccion(null);
+    if (!nuevoArchivo) return;
+
+    setExtrayendo(true);
+    try {
+      const propuesta = await extraerDatosFacturaPdf(nuevoArchivo);
+      if (!propuesta.extraido_automaticamente) {
+        setAvisoExtraccion(propuesta.razon ?? "No se pudo extraer automáticamente; diligencia los campos.");
+      } else {
+        setAvisoExtraccion("Datos leídos de la factura. Revísalos antes de procesar.");
+        // Solo completa los campos que sigan vacíos: no pisa lo que ya vino del listado DIAN.
+        setNitEmisor((prev) => prev || propuesta.nit_emisor || "");
+        setRazonSocial((prev) => prev || propuesta.razon_social_emisor || "");
+        setNumeroFactura((prev) => prev || propuesta.numero_factura || "");
+        setTotal((prev) => prev || (propuesta.total != null ? String(propuesta.total) : ""));
+        setCufe((prev) => prev || propuesta.cufe || "");
+      }
+    } catch (e) {
+      setAvisoExtraccion(e instanceof Error ? e.message : "No se pudo leer la factura");
+    } finally {
+      setExtrayendo(false);
+    }
+  }
 
   async function subir() {
     if (!archivo || !nitEmisor || !total) {
@@ -41,7 +70,7 @@ export function UploadPdfModal({ origenDian, onCerrar, onSubido }: Props) {
         total: Number(total),
         razonSocialEmisor: razonSocial || undefined,
         numeroFactura: numeroFactura || undefined,
-        cufe: origenDian?.cufe,
+        cufe: cufe || undefined,
       });
       onSubido(doc);
     } catch (e) {
@@ -63,13 +92,24 @@ export function UploadPdfModal({ origenDian, onCerrar, onSubido }: Props) {
 
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs text-gray-400">Archivo PDF</label>
+            <label className="mb-1 block text-xs text-gray-400">Archivo PDF o .zip descargado de la DIAN</label>
             <input
               type="file"
-              accept="application/pdf"
-              onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+              accept="application/pdf,.pdf,.zip,application/zip,application/x-zip-compressed"
+              onChange={(e) => alElegirArchivo(e.target.files?.[0] ?? null)}
               className="w-full rounded-lg border border-nova-border bg-nova-bg p-2 text-sm"
             />
+            <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
+              {extrayendo ? (
+                <>
+                  <Sparkles className="h-3 w-3 animate-pulse" />
+                  Leyendo la factura con IA...
+                </>
+              ) : (
+                "Si la DIAN te entregó un .zip, súbelo tal cual: NOVA extrae el PDF y propone los campos."
+              )}
+            </p>
+            {avisoExtraccion && <p className="mt-1 text-[11px] text-amber-300">{avisoExtraccion}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -101,13 +141,23 @@ export function UploadPdfModal({ origenDian, onCerrar, onSubido }: Props) {
             />
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs text-gray-400">Número de factura</label>
-            <input
-              value={numeroFactura}
-              onChange={(e) => setNumeroFactura(e.target.value)}
-              className="w-full rounded-lg border border-nova-border bg-nova-bg p-2 text-sm outline-none focus:border-nova-accent"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-gray-400">Número de factura</label>
+              <input
+                value={numeroFactura}
+                onChange={(e) => setNumeroFactura(e.target.value)}
+                className="w-full rounded-lg border border-nova-border bg-nova-bg p-2 text-sm outline-none focus:border-nova-accent"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-400">CUFE</label>
+              <input
+                value={cufe}
+                onChange={(e) => setCufe(e.target.value)}
+                className="w-full rounded-lg border border-nova-border bg-nova-bg p-2 text-sm outline-none focus:border-nova-accent"
+              />
+            </div>
           </div>
         </div>
 

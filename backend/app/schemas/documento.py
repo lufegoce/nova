@@ -57,3 +57,14 @@ class AprobacionRequest(BaseModel):
     comentario: str | None = None
     aprobado_por: str
     cuenta_puc_corregida: str | None = None
+
+
+class DatosFacturaExtraidosOut(BaseModel):
+    extraido_automaticamente: bool
+    razon: str | None = None
+    nit_emisor: str | None = None
+    razon_social_emisor: str | None = None
+    numero_factura: str | None = None
+    fecha_emision: str | None = None
+    total: float | None = None
+    cufe: str | None = None

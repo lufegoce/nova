@@ -76,6 +76,93 @@ async def _escanear_seguridad_todos_los_tenants() -> dict:
     return resultados
 
 
+@celery_app.task(name="app.workers.tasks.sincronizar_pst_task")
+def sincronizar_pst_task() -> dict:
+    """
+    Consulta periódicamente el PST configurado por cada tenant (ver
+    app/services/pst/) y registra los documentos recibidos nuevos como
+    "pendientes" en el mismo buzón que usa el panel de Documentos
+    (DocumentoDianListado) — así aparecen ahí sin que nadie tenga que
+    resolver un captcha del portal de la DIAN.
+
+    Esto NO crea todavía la factura completa (DocumentoFinanciero): hasta
+    donde se confirmó de la documentación de Factus, no hay un endpoint de
+    descarga del PDF/XML documentado, así que "Subir PDF" en NOVA sigue
+    siendo la acción manual que falta — pero ya no depende del captcha para
+    saber qué documentos existen.
+    """
+    return asyncio.run(_sincronizar_pst_todos_los_tenants())
+
+
+async def _sincronizar_pst_todos_los_tenants() -> dict:
+    from datetime import datetime
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.dian import DocumentoDianListado
+    from app.models.pst import ConfiguracionPst
+    from app.services.pst.base import ErrorConectorPst, FiltrosDocumentosRecibidos
+    from app.services.pst.factory import obtener_conector_pst
+
+    resultados: dict = {}
+    async with AsyncSessionLocal() as db:
+        configs = (
+            await db.execute(select(ConfiguracionPst).where(ConfiguracionPst.activo.is_(True)))
+        ).scalars().all()
+
+        for config in configs:
+            conector = obtener_conector_pst(config.tipo_pst, config.credenciales)
+            try:
+                documentos = await conector.listar_recibidos(FiltrosDocumentosRecibidos())
+            except ErrorConectorPst as exc:
+                resultados[config.tenant_id] = {"error": str(exc)}
+                continue
+
+            nuevos = 0
+            for doc in documentos:
+                if not doc.cufe:
+                    continue
+                existente = (
+                    await db.execute(
+                        select(DocumentoDianListado).where(
+                            DocumentoDianListado.tenant_id == config.tenant_id,
+                            DocumentoDianListado.cufe == doc.cufe,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if existente is not None:
+                    continue
+
+                fecha_emision = None
+                if doc.fecha_emision:
+                    try:
+                        fecha_emision = datetime.fromisoformat(doc.fecha_emision)
+                    except ValueError:
+                        fecha_emision = None
+
+                db.add(
+                    DocumentoDianListado(
+                        tenant_id=config.tenant_id,
+                        cufe=doc.cufe,
+                        nit_emisor=doc.nit_emisor,
+                        razon_social_emisor=doc.razon_social_emisor,
+                        numero_documento=doc.numero_documento,
+                        fecha_emision=fecha_emision,
+                        datos_crudos=doc.datos_crudos,
+                    )
+                )
+                nuevos += 1
+
+            await db.commit()
+            resultados[config.tenant_id] = {"nuevos": nuevos, "total_vistos": len(documentos)}
+
+            if nuevos:
+                _publicar_notificacion(
+                    config.tenant_id, {"evento": "documentos_nuevos_pst", "cantidad": nuevos}
+                )
+
+    return resultados
+
+
 @celery_app.task(name="app.workers.tasks.procesar_lote_facturas_task")
 def procesar_lote_facturas_task(tenant_id: str, rutas_xml: list[str]) -> dict:
     """

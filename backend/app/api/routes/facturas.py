@@ -12,15 +12,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.agente_pagador import PagoNoAutorizadoError
 from app.agents.orchestrator import AgentOrchestrator
-from app.api.deps import get_tenant_id
+from app.api.deps import get_tenant_id, requerir_permiso_empresa
 from app.db.session import get_db
 from app.models.dian import DocumentoDianListado
 from app.models.documento import DocumentoFinanciero, EventoAuditoria
-from app.schemas.documento import AprobacionRequest, DocumentoOut, EventoAuditoriaOut
+from app.models.usuario import RolUsuarioEmpresa
+from app.schemas.documento import AprobacionRequest, DatosFacturaExtraidosOut, DocumentoOut, EventoAuditoriaOut
+from app.services.factura_extractor import extraer_datos_factura
 from app.services.pdf_storage import ruta_absoluta
 from app.services.xml_parser import XMLParseError
+from app.services.zip_pdf import extraer_pdf_si_es_zip as _extraer_pdf_si_es_zip
 
 router = APIRouter(prefix="/facturas", tags=["facturas"])
+
+# Quién puede subir/ingestar documentos: todos menos "solo consulta"
+_PUEDE_INGESTAR = (
+    RolUsuarioEmpresa.ADMINISTRADOR.value,
+    RolUsuarioEmpresa.APROBADOR.value,
+    RolUsuarioEmpresa.OPERADOR.value,
+)
+# Quién puede aprobar y pagar: administrador o aprobador
+_PUEDE_APROBAR = (RolUsuarioEmpresa.ADMINISTRADOR.value, RolUsuarioEmpresa.APROBADOR.value)
+
+_CONTENT_TYPES_PDF = {"application/pdf", "application/octet-stream"}
+_CONTENT_TYPES_ZIP = {"application/zip", "application/x-zip-compressed", "multipart/x-zip"}
 
 
 @router.post("/ingesta", response_model=DocumentoOut, status_code=201)
@@ -28,6 +43,7 @@ async def ingestar_factura(
     archivo: UploadFile = File(...),
     tenant_id: str = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
+    _permiso: None = Depends(requerir_permiso_empresa(*_PUEDE_INGESTAR)),
 ):
     """Agente Receptor: recibe un XML de factura electrónica y lo procesa/causa."""
     contenido = await archivo.read()
@@ -37,6 +53,26 @@ async def ingestar_factura(
     except XMLParseError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return documento
+
+
+@router.post("/extraer-datos-pdf", response_model=DatosFacturaExtraidosOut)
+async def extraer_datos_pdf(
+    archivo: UploadFile = File(...),
+    tenant_id: str = Depends(get_tenant_id),
+    _permiso: None = Depends(requerir_permiso_empresa(*_PUEDE_INGESTAR)),
+):
+    """
+    Propuesta de datos leída de la factura con IA (Claude lee el PDF nativo,
+    ver app/services/factura_extractor.py). No crea nada: el usuario revisa
+    la propuesta en el formulario de "Subir factura en PDF" antes de
+    confirmar (ver /facturas/ingesta-pdf).
+    """
+    if archivo.content_type not in (_CONTENT_TYPES_PDF | _CONTENT_TYPES_ZIP):
+        raise HTTPException(status_code=422, detail="El archivo debe ser un PDF o el .zip descargado de la DIAN")
+
+    contenido = await archivo.read()
+    contenido = _extraer_pdf_si_es_zip(archivo.filename or "", contenido)
+    return extraer_datos_factura(contenido)
 
 
 @router.post("/ingesta-pdf", response_model=DocumentoOut, status_code=201)
@@ -50,17 +86,21 @@ async def ingestar_factura_pdf(
     cufe: str | None = Form(None),
     tenant_id: str = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
+    _permiso: None = Depends(requerir_permiso_empresa(*_PUEDE_INGESTAR)),
 ):
     """
     Ingesta manual: el PDF fue descargado por el humano desde el portal DIAN
-    (ver /dian/documentos-recibidos) resolviendo el captcha él mismo. Los
-    campos clave los confirma el usuario al subir el archivo, ya que la
-    extracción automática desde un PDF arbitrario no es confiable sin OCR.
+    (ver /dian/documentos-recibidos) resolviendo el captcha él mismo, o vía
+    el PST (ver /configuracion/pst). La DIAN entrega ese PDF dentro de un
+    .zip, así que también se acepta el .zip directamente y se extrae el PDF
+    automáticamente. Los campos clave los confirma el usuario (auto-llenados
+    por /facturas/extraer-datos-pdf, pero siempre editables antes de guardar).
     """
-    if archivo.content_type not in ("application/pdf", "application/octet-stream"):
-        raise HTTPException(status_code=422, detail="El archivo debe ser un PDF")
+    if archivo.content_type not in (_CONTENT_TYPES_PDF | _CONTENT_TYPES_ZIP):
+        raise HTTPException(status_code=422, detail="El archivo debe ser un PDF o el .zip descargado de la DIAN")
 
     contenido = await archivo.read()
+    contenido = _extraer_pdf_si_es_zip(archivo.filename or "", contenido)
     orquestador = AgentOrchestrator(db, tenant_id)
     documento = await orquestador.procesar_pdf_manual(
         contenido,
@@ -156,6 +196,7 @@ async def aprobar_factura(
     body: AprobacionRequest,
     tenant_id: str = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
+    _permiso: None = Depends(requerir_permiso_empresa(*_PUEDE_APROBAR)),
 ):
     """
     Human-in-the-loop: valida la propuesta del Agente Contable. Si se aprueba,
