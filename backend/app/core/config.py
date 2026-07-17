@@ -27,9 +27,13 @@ class Settings(BaseSettings):
     CLAUDE_MODEL: str = "claude-sonnet-5"
 
     # OCR local para RUTs escaneados sin capa de texto (ver app/services/rut_extractor.py).
-    # Ruta del binario y del directorio de idiomas de Tesseract instalados fuera de
-    # Program Files (sin permiso de escritura ahí) — ver README para instalación.
-    TESSERACT_CMD: str = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    # Tesseract se instala fuera de Program Files (sin permiso de escritura ahí)
+    # — ver README para instalación. Vacío por defecto: pytesseract busca
+    # "tesseract" en PATH, que es lo correcto tanto en el contenedor Linux
+    # (imagen con tesseract-ocr instalado vía apt, sin Program Files) como en
+    # un dev Windows que lo agregó al PATH. Solo hay que fijar esta variable
+    # si el binario no está en PATH.
+    TESSERACT_CMD: str = ""
     TESSDATA_PREFIX: str = ""
 
     # Multi-tenancy: header con el ID del tenant en cada request

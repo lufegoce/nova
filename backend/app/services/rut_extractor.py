@@ -327,7 +327,8 @@ def _extraer_texto_ocr(contenido_pdf: bytes) -> str:
         logger.warning("pytesseract no está instalado; se omite el respaldo de OCR para el RUT.")
         return ""
 
-    pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_CMD
+    if settings.TESSERACT_CMD:
+        pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_CMD
     if settings.TESSDATA_PREFIX:
         os.environ["TESSDATA_PREFIX"] = settings.TESSDATA_PREFIX
 
@@ -385,7 +386,7 @@ def extraer_datos_rut(contenido_pdf: bytes) -> dict:
             )
             return datos
 
-    texto_ocr = _extraer_texto_ocr(contenido_pdf)
+    texto_ocr = _extraer_texto_ocr(contenido_pdf) if es_escaneo else ""
     if texto_ocr.strip():
         datos = _parsear_por_patrones(texto_ocr)
         if datos["nombre"] and datos["nit"]:

@@ -69,15 +69,24 @@ async def vincular_sesion_dian(
     empresa_result = await db.execute(select(Empresa).where(Empresa.tenant_id == tenant_id))
     empresa = empresa_result.scalar_one_or_none()
 
-    if nit_del_enlace and empresa and empresa.nit and _solo_digitos(nit_del_enlace) != _solo_digitos(empresa.nit):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Este enlace pertenece al NIT {nit_del_enlace}, pero {empresa.nombre} está "
-                f"registrada con NIT {empresa.nit}. Verifica que el correo de la DIAN sea el "
-                "de esta empresa antes de vincularlo — no se guardó la sesión."
-            ),
-        )
+    if nit_del_enlace and empresa:
+        if not empresa.nit:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{empresa.nombre} no tiene NIT configurado, así que no se puede verificar que "
+                    "este enlace le pertenezca. Completa el NIT de la empresa antes de vincular la sesión DIAN."
+                ),
+            )
+        if _solo_digitos(nit_del_enlace) != _solo_digitos(empresa.nit):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Este enlace pertenece al NIT {nit_del_enlace}, pero {empresa.nombre} está "
+                    f"registrada con NIT {empresa.nit}. Verifica que el correo de la DIAN sea el "
+                    "de esta empresa antes de vincularlo — no se guardó la sesión."
+                ),
+            )
 
     try:
         cookies = await vincular_sesion(body.magic_link_url)

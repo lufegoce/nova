@@ -138,7 +138,12 @@ class FactusConectorPST(ConectorPST):
             raise ErrorConectorPst(f"Factus respondió {respuesta.status_code}: {respuesta.text[:500]}")
 
         cuerpo = respuesta.json()
-        items = (cuerpo.get("data") or {}).get("data") if isinstance(cuerpo, dict) else None
+        # No usar "cuerpo.get('data') or {}": si el nivel externo ya trae la
+        # lista vacía (0 resultados representados como "data": [] en vez del
+        # anidamiento data.data), "or {}" lo trata como ausente y lanza el
+        # error de "forma inesperada" en vez de devolver una lista vacía.
+        nivel_externo = cuerpo.get("data") if isinstance(cuerpo, dict) else None
+        items = nivel_externo.get("data") if isinstance(nivel_externo, dict) else nivel_externo
         if not isinstance(items, list):
             raise ErrorConectorPst(
                 "La respuesta de Factus no tiene la forma esperada (se esperaba una lista en 'data.data'); "

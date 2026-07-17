@@ -131,13 +131,16 @@ def vigilar(cliente: ClienteNova, carpeta: Path, intervalo: float) -> None:
             pendientes = cliente.documentos_pendientes()
             if pendientes:
                 log(f"{len(pendientes)} documento(s) pendiente(s) de descarga en la cola DIAN.")
-        except requests.HTTPError as exc:
+        except requests.exceptions.RequestException as exc:
             # La DIAN falla intermitentemente del lado de ellos (500/502
-            # vistos en la práctica en GetDocumentsPageToken). No tiene
-            # sentido matar el vigilante por eso: se seguía usando la
-            # última lista de pendientes conocida y se reintenta refrescarla
-            # en el próximo ciclo.
-            log(f"  No se pudo refrescar la lista de pendientes ({exc.response.status_code}); se reintenta luego.")
+            # vistos en la práctica en GetDocumentsPageToken), y la red local
+            # también puede caerse un momento. No tiene sentido matar el
+            # vigilante por ninguno de los dos: se sigue usando la última
+            # lista de pendientes conocida y se reintenta refrescarla en el
+            # próximo ciclo. RequestException cubre HTTPError, ConnectionError
+            # y Timeout — capturar solo HTTPError dejaba pasar los otros dos.
+            detalle = f"status {exc.response.status_code}" if exc.response is not None else str(exc)
+            log(f"  No se pudo refrescar la lista de pendientes ({detalle}); se reintenta luego.")
 
         for ruta in sorted(carpeta.glob("*.zip")):
             if ruta.name in vistos:

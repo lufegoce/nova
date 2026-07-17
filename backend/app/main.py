@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.api.routes.auth import router as auth_router
 from app.api.routes.facturas import router as facturas_router
@@ -29,6 +30,40 @@ from app.workers.tasks import CANAL_NOTIFICACIONES_DIAN
 settings = get_settings()
 
 
+async def _migrar_cufe_unico_por_tenant(conn):
+    """
+    create_all() no altera tablas que ya existen: si esta base venía de antes
+    del cambio a UniqueConstraint("tenant_id", "cufe") en app/models/dian.py,
+    el índice único global viejo sobre `cufe` sigue ahí y nunca se crea el
+    nuevo. Sin eso, el ON CONFLICT (tenant_id, cufe) de
+    app/api/routes/dian.py falla con "no unique or exclusion constraint
+    matching the ON CONFLICT specification". Se resuelve acá en vez de con
+    Alembic porque este MVP no lo usa (ver docstring de arriba).
+    """
+    viejo = (
+        await conn.execute(
+            text("SELECT 1 FROM pg_constraint WHERE conname = 'documentos_dian_listados_cufe_key'")
+        )
+    ).first()
+    if viejo:
+        await conn.execute(
+            text("ALTER TABLE documentos_dian_listados DROP CONSTRAINT documentos_dian_listados_cufe_key")
+        )
+
+    nuevo = (
+        await conn.execute(
+            text("SELECT 1 FROM pg_constraint WHERE conname = 'uq_documentos_dian_tenant_cufe'")
+        )
+    ).first()
+    if not nuevo:
+        await conn.execute(
+            text(
+                "ALTER TABLE documentos_dian_listados "
+                "ADD CONSTRAINT uq_documentos_dian_tenant_cufe UNIQUE (tenant_id, cufe)"
+            )
+        )
+
+
 async def _crear_tablas_si_no_existen():
     """
     Creación de esquema para el MVP local. En producción, reemplazar por
@@ -36,6 +71,7 @@ async def _crear_tablas_si_no_existen():
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrar_cufe_unico_por_tenant(conn)
 
     async with AsyncSessionLocal() as sesion:
         await sembrar_datos_prueba(sesion)

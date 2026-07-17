@@ -512,9 +512,6 @@ CODIGOS_CIIU: dict[str, str] = {
     "9810": "Actividades no diferenciadas de los hogares individuales como productores de bienes para uso propio.",
     "9820": "Actividades no diferenciadas de los hogares individuales como productores de servicios para uso propio.",
     "9900": "Actividades de organizaciones y entidades extraterritoriales.",
-    "Es": "necesario anotar que estas “Otras Clasificaciones” no son parte de la CIIU Rev. 4 A.C., son establecidas por la Dirección de Impuestos y Aduanas Nacionales - DIAN para propósitos de control, determinación de los impuestos y demás obligaciones tributarias, aduaneras y cambiarias, de su competencia.",
-    "Otras": "Clasificaciones",
-    "Personas": "naturales o sucesiones ilíquidas cuyos ingresos provienen de intereses, descuentos, beneficios, ganancias, utilidades y en general, todo cuanto represente rendimiento de capital o diferencia entre el valor invertido o aportado, y el valor futuro y/o pagado o abonado al aportante o inversionista.",
 }
 
 

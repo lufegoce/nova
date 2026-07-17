@@ -12,6 +12,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -180,7 +181,7 @@ async def extraer_rut(
         raise HTTPException(status_code=422, detail="El RUT debe subirse en PDF")
 
     contenido = await archivo.read()
-    return extraer_datos_rut(contenido)
+    return await run_in_threadpool(extraer_datos_rut, contenido)
 
 
 @router.post("/empresas", response_model=EmpresaOut, status_code=201)
