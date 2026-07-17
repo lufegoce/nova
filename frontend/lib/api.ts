@@ -421,8 +421,20 @@ export async function obtenerSesionDian(): Promise<SesionDian | null> {
   return res.json();
 }
 
-export async function listarDocumentosDian(): Promise<DocumentoDianListado[]> {
-  const res = await fetch(`${API_BASE}/dian/documentos-recibidos`, {
+export interface FiltrosDocumentosDian {
+  fechaInicio?: string; // YYYY-MM-DD
+  fechaFin?: string; // YYYY-MM-DD
+}
+
+export async function listarDocumentosDian(
+  filtros: FiltrosDocumentosDian = {}
+): Promise<DocumentoDianListado[]> {
+  const params = new URLSearchParams();
+  if (filtros.fechaInicio) params.set("fecha_inicio", filtros.fechaInicio);
+  if (filtros.fechaFin) params.set("fecha_fin", filtros.fechaFin);
+  const query = params.toString();
+
+  const res = await fetch(`${API_BASE}/dian/documentos-recibidos${query ? `?${query}` : ""}`, {
     headers: headers(),
     credentials: "include",
     cache: "no-store",

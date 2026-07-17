@@ -2,8 +2,26 @@
 
 import { useEffect, useState } from "react";
 import { CheckCircle2, Sparkles, X } from "lucide-react";
+import { unzipSync } from "fflate";
 import type { DocumentoDianListado, DocumentoFinanciero } from "@/lib/api";
 import { extraerDatosFacturaPdf, ingestarFacturaPdf } from "@/lib/api";
+
+const ES_ZIP = /\.zip$/i;
+const ES_PDF_DENTRO_DEL_ZIP = /\.pdf$/i;
+
+/**
+ * Espejo en el navegador de app/services/zip_pdf.py::extraer_pdf_si_es_zip:
+ * mismo criterio (primer .pdf por orden alfabético, ignorando __MACOSX) para
+ * que la vista previa muestre exactamente el mismo archivo que el backend
+ * terminará procesando.
+ */
+function extraerPrimerPdfDelZip(bytes: Uint8Array): Uint8Array | null {
+  const entradas = unzipSync(bytes);
+  const nombrePdf = Object.keys(entradas)
+    .filter((nombre) => ES_PDF_DENTRO_DEL_ZIP.test(nombre) && !nombre.startsWith("__MACOSX"))
+    .sort()[0];
+  return nombrePdf ? entradas[nombrePdf] : null;
+}
 
 interface Props {
   /** Si se abrió desde una fila del listado DIAN, se usa para precargar campos y enlazar el CUFE. */
@@ -46,19 +64,57 @@ export function UploadPdfModal({ origenDian, onCerrar, onSubido }: Props) {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<DocumentoFinanciero | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
-  // La vista previa se arma desde el archivo elegido en el navegador — no
-  // hace falta subirlo primero para poder verlo. Los .zip que entrega la
-  // DIAN no se pueden previsualizar así (el navegador no renderiza zips);
-  // en ese caso solo se avisa que la vista previa no está disponible.
+  // La vista previa se arma desde el archivo elegido en el navegador, sin
+  // subirlo primero. La DIAN entrega el PDF dentro de un .zip: en ese caso
+  // se extrae el primer PDF en el navegador (mismo criterio que
+  // app/services/zip_pdf.py del backend) para previsualizarlo igual que un
+  // PDF suelto, en vez de solo avisar que no hay vista previa.
   useEffect(() => {
-    if (!archivo || archivo.type !== "application/pdf") {
+    let urlDeEsteEfecto: string | null = null;
+    setPreviewError(null);
+
+    if (!archivo) {
       setPreviewUrl(null);
       return;
     }
-    const url = URL.createObjectURL(archivo);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
+
+    if (archivo.type === "application/pdf" || archivo.name.toLowerCase().endsWith(".pdf")) {
+      urlDeEsteEfecto = URL.createObjectURL(archivo);
+      setPreviewUrl(urlDeEsteEfecto);
+      return () => URL.revokeObjectURL(urlDeEsteEfecto!);
+    }
+
+    if (ES_ZIP.test(archivo.name) || archivo.type.includes("zip")) {
+      let cancelado = false;
+      archivo
+        .arrayBuffer()
+        .then((buffer) => {
+          if (cancelado) return;
+          const pdfBytes = extraerPrimerPdfDelZip(new Uint8Array(buffer));
+          if (!pdfBytes) {
+            setPreviewError("El .zip no contiene ningún PDF; súbelo igual, NOVA lo revisa al procesar.");
+            setPreviewUrl(null);
+            return;
+          }
+          const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
+          urlDeEsteEfecto = URL.createObjectURL(blob);
+          setPreviewUrl(urlDeEsteEfecto);
+        })
+        .catch(() => {
+          if (!cancelado) {
+            setPreviewError("No se pudo leer el .zip para previsualizarlo; súbelo igual, NOVA lo procesa del lado del servidor.");
+            setPreviewUrl(null);
+          }
+        });
+      return () => {
+        cancelado = true;
+        if (urlDeEsteEfecto) URL.revokeObjectURL(urlDeEsteEfecto);
+      };
+    }
+
+    setPreviewUrl(null);
   }, [archivo]);
 
   async function alElegirArchivo(nuevoArchivo: File | null) {
@@ -168,9 +224,7 @@ export function UploadPdfModal({ origenDian, onCerrar, onSubido }: Props) {
               <iframe src={previewUrl} className="h-full w-full bg-white" title="Vista previa de la factura" />
             ) : (
               <div className="flex h-full items-center justify-center p-4 text-center text-xs text-gray-500">
-                {archivo
-                  ? "Vista previa no disponible para archivos .zip — súbelo y NOVA extrae el PDF de adentro."
-                  : "Elegí un archivo para verlo acá."}
+                {previewError ?? (archivo ? "Leyendo el archivo..." : "Elegí un archivo para verlo acá.")}
               </div>
             )}
           </div>

@@ -8,6 +8,16 @@ import type { DocumentoDianListado } from "@/lib/api";
 import { listarDocumentosDian, obtenerSesionDian, obtenerUrlPortalDian } from "@/lib/api";
 import { LinkDianModal } from "./LinkDianModal";
 
+function hace30Dias(): string {
+  const fecha = new Date();
+  fecha.setDate(fecha.getDate() - 30);
+  return fecha.toISOString().slice(0, 10);
+}
+
+function hoy(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 interface Props {
   onSubirPdf: (origen: DocumentoDianListado) => void;
 }
@@ -25,6 +35,8 @@ export function DianPanel({ onSubirPdf }: Props) {
   const [mostrarModalVinculo, setMostrarModalVinculo] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fechaInicio, setFechaInicio] = useState(hace30Dias());
+  const [fechaFin, setFechaFin] = useState(hoy());
 
   async function verificarSesion() {
     const sesion = await obtenerSesionDian().catch(() => null);
@@ -36,7 +48,7 @@ export function DianPanel({ onSubirPdf }: Props) {
     setCargando(true);
     setError(null);
     try {
-      setDocumentos(await listarDocumentosDian());
+      setDocumentos(await listarDocumentosDian({ fechaInicio, fechaFin }));
     } catch (e) {
       // 409 = sin sesión vinculada o sesión expirada (ver DianAuthError en el
       // backend): en vez de dejar al usuario leyendo un mensaje de error,
@@ -74,15 +86,6 @@ export function DianPanel({ onSubirPdf }: Props) {
           </p>
         </div>
         <div className="flex gap-2">
-          {vinculado && (
-            <button
-              onClick={cargarDocumentos}
-              disabled={cargando}
-              className="rounded-lg border border-nova-border px-3 py-1.5 text-xs text-gray-300 hover:bg-nova-bg disabled:opacity-50"
-            >
-              {cargando ? "Actualizando..." : "Actualizar"}
-            </button>
-          )}
           <button
             onClick={() => setMostrarModalVinculo(true)}
             className="flex items-center gap-1.5 rounded-lg bg-nova-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-600"
@@ -92,6 +95,39 @@ export function DianPanel({ onSubirPdf }: Props) {
           </button>
         </div>
       </div>
+
+      {vinculado && (
+        <div className="mb-3 flex flex-wrap items-end gap-2 text-xs text-gray-400">
+          <label className="flex flex-col gap-1">
+            Desde
+            <input
+              type="date"
+              value={fechaInicio}
+              max={fechaFin}
+              onChange={(e) => setFechaInicio(e.target.value)}
+              className="rounded-lg border border-nova-border bg-nova-bg px-2 py-1 text-gray-200"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            Hasta
+            <input
+              type="date"
+              value={fechaFin}
+              min={fechaInicio}
+              max={hoy()}
+              onChange={(e) => setFechaFin(e.target.value)}
+              className="rounded-lg border border-nova-border bg-nova-bg px-2 py-1 text-gray-200"
+            />
+          </label>
+          <button
+            onClick={cargarDocumentos}
+            disabled={cargando}
+            className="rounded-lg border border-nova-border px-3 py-1.5 text-gray-300 hover:bg-nova-bg disabled:opacity-50"
+          >
+            {cargando ? "Actualizando..." : "Filtrar"}
+          </button>
+        </div>
+      )}
 
       {error && <p className="mb-3 text-xs text-red-400">{error}</p>}
 
