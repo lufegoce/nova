@@ -1,8 +1,9 @@
 """
 Configuración del tenant: la integración con el ERP contable (SIIGO, Odoo,
-SAP Business One...) que se usa al aprobar y pagar una factura, y la
+SAP Business One...) que se usa al aprobar y pagar una factura, la
 integración con el PST (Factus) para consultar documentos recibidos sin
-pasar por el captcha del portal humano de la DIAN.
+pasar por el captcha del portal humano de la DIAN, y el buzón de correo que
+NOVA vigila para recibir facturas de proveedores directamente por email.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -10,10 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_tenant_id
 from app.db.session import get_db
+from app.models.correo import ConfiguracionCorreoFacturas
 from app.models.erp import ConfiguracionErp
 from app.models.pst import ConfiguracionPst
+from app.schemas.correo import ConfiguracionCorreoOut, ConfiguracionCorreoRequest
 from app.schemas.erp import ConfiguracionErpOut, ConfiguracionErpRequest
 from app.schemas.pst import ConfiguracionPstOut, ConfiguracionPstRequest, DocumentoRecibidoPstOut
+from app.services.correo_watcher import ErrorCorreoFacturas, probar_conexion as probar_conexion_correo
 from app.services.pst.base import ErrorConectorPst, FiltrosDocumentosRecibidos
 from app.services.pst.factory import obtener_conector_pst
 
@@ -173,3 +177,64 @@ async def guardar_configuracion_erp(
         actualizado_en=config.actualizado_en,
         campos_configurados=list(config.credenciales.keys()),
     )
+
+
+@router.get("/correo", response_model=ConfiguracionCorreoOut)
+async def obtener_configuracion_correo(
+    tenant_id: str = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ConfiguracionCorreoFacturas).where(ConfiguracionCorreoFacturas.tenant_id == tenant_id)
+    )
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail="No hay buzón de correo configurado para este tenant")
+    return config
+
+
+@router.put("/correo", response_model=ConfiguracionCorreoOut)
+async def guardar_configuracion_correo(
+    body: ConfiguracionCorreoRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ConfiguracionCorreoFacturas).where(ConfiguracionCorreoFacturas.tenant_id == tenant_id)
+    )
+    config = result.scalar_one_or_none()
+
+    if config is None:
+        if not body.password:
+            raise HTTPException(status_code=422, detail="La contraseña es obligatoria al configurar el buzón por primera vez")
+        config = ConfiguracionCorreoFacturas(tenant_id=tenant_id, **body.model_dump())
+        db.add(config)
+    else:
+        for campo, valor in body.model_dump(exclude={"password"}).items():
+            setattr(config, campo, valor)
+        if body.password:
+            config.password = body.password
+
+    await db.commit()
+    await db.refresh(config)
+    return config
+
+
+@router.post("/correo/probar")
+async def probar_configuracion_correo(
+    tenant_id: str = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Solo confirma que las credenciales IMAP sirven, sin procesar ningún correo."""
+    result = await db.execute(
+        select(ConfiguracionCorreoFacturas).where(ConfiguracionCorreoFacturas.tenant_id == tenant_id)
+    )
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail="No hay buzón de correo configurado para este tenant")
+
+    try:
+        await probar_conexion_correo(config)
+    except ErrorCorreoFacturas as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok"}

@@ -38,4 +38,8 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.sincronizar_pst_task",
         "schedule": crontab(minute="*/10"),
     },
+    "sincronizar-correo-facturas-periodicamente": {
+        "task": "app.workers.tasks.sincronizar_correo_facturas_task",
+        "schedule": crontab(minute="*/5"),
+    },
 }

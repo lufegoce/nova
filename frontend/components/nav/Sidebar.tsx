@@ -39,7 +39,7 @@ const SUBMODULOS_CONFIGURACION_CONTADOR: SubmoduloNav[] = [
 ];
 
 const SUBMODULOS_CONFIGURACION_EMPRESA: SubmoduloNav[] = [
-  { nombre: "ERP y PST", href: "/configuracion", icono: Settings },
+  { nombre: "ERP, PST y Correo", href: "/configuracion", icono: Settings },
   { nombre: "DIAN", href: "/configuracion/dian", icono: Link2 },
 ];
 
@@ -81,7 +81,7 @@ export function Sidebar() {
       href: "/configuracion",
       icono: Settings,
       disponible: true,
-      descripcion: sesion?.rol === "contador" ? "Empresas, usuarios y DIAN" : "ERP, PST y DIAN",
+      descripcion: sesion?.rol === "contador" ? "Empresas, usuarios y DIAN" : "ERP, PST, Correo y DIAN",
       submodulos: sesion?.rol === "contador" ? SUBMODULOS_CONFIGURACION_CONTADOR : SUBMODULOS_CONFIGURACION_EMPRESA,
     },
   ];

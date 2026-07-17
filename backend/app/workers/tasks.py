@@ -163,6 +163,50 @@ async def _sincronizar_pst_todos_los_tenants() -> dict:
     return resultados
 
 
+@celery_app.task(name="app.workers.tasks.sincronizar_correo_facturas_task")
+def sincronizar_correo_facturas_task() -> dict:
+    """
+    Revisa el buzón de correo configurado por cada tenant activo (ver
+    app/models/correo.py, app/services/correo_watcher.py) y sube las
+    facturas que llegaron de proveedores por email — mismo criterio de
+    confianza que backend/scripts/vigilar_correo_facturas.py: los .xml se
+    causan automáticamente, los .pdf/.zip solo si la lectura con IA es
+    confiable, y lo que no se puede subir con confianza queda para revisión
+    manual desde el panel de Documentos.
+    """
+    return asyncio.run(_sincronizar_correo_todos_los_tenants())
+
+
+async def _sincronizar_correo_todos_los_tenants() -> dict:
+    from app.db.session import AsyncSessionLocal
+    from app.models.correo import ConfiguracionCorreoFacturas
+    from app.services.correo_watcher import ErrorCorreoFacturas, sincronizar_buzon
+
+    resultados: dict = {}
+    async with AsyncSessionLocal() as db:
+        configs = (
+            await db.execute(
+                select(ConfiguracionCorreoFacturas).where(ConfiguracionCorreoFacturas.activo.is_(True))
+            )
+        ).scalars().all()
+
+        for config in configs:
+            try:
+                resultado = await sincronizar_buzon(db, config)
+            except ErrorCorreoFacturas as exc:
+                resultados[config.tenant_id] = {"error": str(exc)}
+                continue
+
+            resultados[config.tenant_id] = resultado
+            if resultado["facturas_subidas"]:
+                _publicar_notificacion(
+                    config.tenant_id,
+                    {"evento": "facturas_nuevas_correo", "cantidad": resultado["facturas_subidas"]},
+                )
+
+    return resultados
+
+
 @celery_app.task(name="app.workers.tasks.procesar_lote_facturas_task")
 def procesar_lote_facturas_task(tenant_id: str, rutas_xml: list[str]) -> dict:
     """

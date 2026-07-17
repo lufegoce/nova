@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { CorreoConfigForm } from "@/components/configuracion/CorreoConfigForm";
 import { ErpConfigForm } from "@/components/configuracion/ErpConfigForm";
 import { PstConfigForm } from "@/components/configuracion/PstConfigForm";
 import { useAuth } from "@/contexts/AuthContext";
@@ -19,6 +20,7 @@ export default function ConfiguracionPage() {
   return (
     <div className="flex-1 space-y-4 overflow-y-auto p-4">
       <PstConfigForm />
+      <CorreoConfigForm />
       <ErpConfigForm />
     </div>
   );

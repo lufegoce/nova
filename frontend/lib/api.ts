@@ -550,6 +550,59 @@ export async function listarDocumentosRecibidosPst(): Promise<DocumentoRecibidoP
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Buzón de correo (IMAP) que NOVA vigila para recibir facturas de
+// proveedores directamente por email — alternativa a subir el PDF/XML a
+// mano, ver backend/app/services/correo_watcher.py. La contraseña nunca
+// viaja de vuelta en la respuesta de la API, solo se envía al guardar.
+// ---------------------------------------------------------------------------
+
+export interface ConfiguracionCorreo {
+  host: string;
+  puerto: number;
+  usuario: string;
+  carpeta: string;
+  activo: boolean;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+export interface DatosConfiguracionCorreo {
+  host: string;
+  puerto: number;
+  usuario: string;
+  password: string;
+  carpeta: string;
+  activo: boolean;
+}
+
+export async function obtenerConfiguracionCorreo(): Promise<ConfiguracionCorreo | null> {
+  const res = await fetch(`${API_BASE}/configuracion/correo`, {
+    headers: headers(),
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (res.status === 404) return null;
+  await manejarError(res, "Error al consultar la configuración del correo");
+  return res.json();
+}
+
+export async function guardarConfiguracionCorreo(datos: DatosConfiguracionCorreo): Promise<ConfiguracionCorreo> {
+  const res = await fetch(`${API_BASE}/configuracion/correo`, {
+    method: "PUT",
+    headers: headers(),
+    credentials: "include",
+    body: JSON.stringify(datos),
+  });
+  await manejarError(res, "Error al guardar la configuración del correo");
+  return res.json();
+}
+
+export async function probarConexionCorreo(): Promise<void> {
+  const res = await fetch(`${API_BASE}/configuracion/correo/probar`, { method: "POST", credentials: "include" });
+  await manejarError(res, "No se pudo conectar al buzón de correo");
+}
+
 export type SeveridadAlerta = "baja" | "media" | "alta";
 
 export interface AlertaSeguridad {
