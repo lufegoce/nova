@@ -95,7 +95,7 @@ def sincronizar_pst_task() -> dict:
 
 
 async def _sincronizar_pst_todos_los_tenants() -> dict:
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     from app.db.session import AsyncSessionLocal
     from app.models.dian import DocumentoDianListado
@@ -136,6 +136,14 @@ async def _sincronizar_pst_todos_los_tenants() -> dict:
                 if doc.fecha_emision:
                     try:
                         fecha_emision = datetime.fromisoformat(doc.fecha_emision)
+                        if fecha_emision.tzinfo is not None:
+                            # DocumentoDianListado.fecha_emision es DateTime naive (igual que
+                            # el resto del modelo, que usa datetime.utcnow() sin tz). Factus
+                            # devuelve issue_date con sufijo "Z" (aware); asyncpg rechaza
+                            # insertar un datetime aware en una columna naive, así que se
+                            # normaliza a UTC naive aquí. Confirmado en vivo contra el
+                            # sandbox real: sin esto, sincronizar_pst_task truena en el INSERT.
+                            fecha_emision = fecha_emision.astimezone(timezone.utc).replace(tzinfo=None)
                     except ValueError:
                         fecha_emision = None
 
