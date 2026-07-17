@@ -10,6 +10,7 @@ import {
   FileText,
   BarChart3,
   GitCompare,
+  Link2,
   Settings,
   ShieldAlert,
   Users,
@@ -34,6 +35,12 @@ interface ModuloNav {
 const SUBMODULOS_CONFIGURACION_CONTADOR: SubmoduloNav[] = [
   { nombre: "Empresas", href: "/configuracion/empresas", icono: Building2 },
   { nombre: "Usuarios", href: "/configuracion/usuarios", icono: Users },
+  { nombre: "DIAN", href: "/configuracion/dian", icono: Link2 },
+];
+
+const SUBMODULOS_CONFIGURACION_EMPRESA: SubmoduloNav[] = [
+  { nombre: "ERP y PST", href: "/configuracion", icono: Settings },
+  { nombre: "DIAN", href: "/configuracion/dian", icono: Link2 },
 ];
 
 export function Sidebar() {
@@ -74,8 +81,8 @@ export function Sidebar() {
       href: "/configuracion",
       icono: Settings,
       disponible: true,
-      descripcion: sesion?.rol === "contador" ? "Empresas y usuarios" : "Integración con el ERP",
-      submodulos: sesion?.rol === "contador" ? SUBMODULOS_CONFIGURACION_CONTADOR : undefined,
+      descripcion: sesion?.rol === "contador" ? "Empresas, usuarios y DIAN" : "ERP, PST y DIAN",
+      submodulos: sesion?.rol === "contador" ? SUBMODULOS_CONFIGURACION_CONTADOR : SUBMODULOS_CONFIGURACION_EMPRESA,
     },
   ];
 
@@ -119,22 +126,30 @@ export function Sidebar() {
 
               {submodulos && expandido && (
                 <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-nova-border pl-3">
-                  {submodulos.map((sub) => {
-                    const subActivo = pathname.startsWith(sub.href);
-                    return (
-                      <Link
-                        key={sub.href}
-                        href={sub.href}
-                        className={clsx(
-                          "flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
-                          subActivo ? "bg-nova-accent/15 text-nova-accent" : "text-gray-400 hover:bg-nova-bg"
-                        )}
-                      >
-                        <sub.icono className="h-3.5 w-3.5" />
-                        {sub.nombre}
-                      </Link>
+                  {(() => {
+                    // Coincidencia por prefijo más específico: evita que "/configuracion"
+                    // (ERP y PST) se marque activo estando en "/configuracion/dian".
+                    const coincidencias = submodulos.filter(
+                      (s) => pathname === s.href || pathname.startsWith(`${s.href}/`)
                     );
-                  })}
+                    const mejorCoincidencia = coincidencias.sort((a, b) => b.href.length - a.href.length)[0]?.href;
+                    return submodulos.map((sub) => {
+                      const subActivo = sub.href === mejorCoincidencia;
+                      return (
+                        <Link
+                          key={sub.href}
+                          href={sub.href}
+                          className={clsx(
+                            "flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
+                            subActivo ? "bg-nova-accent/15 text-nova-accent" : "text-gray-400 hover:bg-nova-bg"
+                          )}
+                        >
+                          <sub.icono className="h-3.5 w-3.5" />
+                          {sub.nombre}
+                        </Link>
+                      );
+                    });
+                  })()}
                 </div>
               )}
             </div>

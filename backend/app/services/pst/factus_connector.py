@@ -5,30 +5,36 @@ empresa de sus proveedores, sin pasar por el portal humano de la DIAN y por
 lo tanto sin el captcha de Cloudflare Turnstile que bloquea la automatización
 del Catálogo de Visualización (ver dian_portal_connector.py).
 
-⚠️ ESTADO: parcialmente verificado. Lo siguiente viene confirmado de la
-documentación pública de Factus (developers.factus.com.co), pegada por el
-usuario:
+✅ ESTADO: verificado en vivo contra el sandbox (2026-07-15) con credenciales
+reales de Factus:
   - Autenticación: POST {base}/oauth/token (form-data: grant_type=password,
     client_id, client_secret, username, password) -> {access_token,
-    refresh_token, expires_in, token_type}.
-  - Listado: GET {base}/v2/receptions/bills con filtros
+    refresh_token, expires_in, token_type}. Confirmado, funciona.
+  - Listado: GET {base}/v1/receptions/bills (NO /v2 — ese endpoint responde
+    500 "Ha ocurrido un error inesperado" en este sandbox) con filtros
     filter[cufe], filter[company_nit], filter[company_name], filter[number],
     filter[issue_date], filter[completed_events] (1 = sin eventos RADIAN
     pendientes, 0 = con eventos pendientes), header Authorization: Bearer.
-
-Lo que NO está confirmado (no se pudo obtener un ejemplo de respuesta real,
-y no hay credenciales de sandbox disponibles todavía para probar en vivo):
-  - El nombre exacto de los campos en cada factura del listado (se asume la
-    forma más probable dado que la API es Laravel: envoltorio {"data": [...]}
-    y nombres de columna en snake_case iguales a los filtros).
-  - Si el listado trae el XML/PDF embebido o solo referencias/URLs.
-  - La URL base de producción exacta (se infiere reemplazando "api-sandbox"
-    por "api", sin confirmar).
+  - Forma real de la respuesta: {"status": "OK", "message": "...",
+    "data": {"data": [ {...factura...} ], "pagination": {...}}} — la lista
+    de facturas va anidada en data.data, no en data directamente.
+  - Campos confirmados en cada factura: id, number, issue_date, issue_time,
+    cufe, company_nit, company_name, payment_details, total, created_at.
+    completed_events no apareció en la muestra real (queda None/sin filtrar
+    cuando falta).
+  - CONFIRMADO (2026-07-15): ni el listado ni el detalle traen el XML/PDF del
+    documento, y no existe un endpoint de descarga para el módulo de
+    recepción — se probaron GET /v1/receptions/bills/{id} (200, solo
+    metadata: fecha, forma de pago, eventos RADIAN) y variantes
+    /{id}/download, /download-pdf/{id} (ambas 500). Aunque Factus no exige
+    captcha como el portal de la DIAN, tampoco expone el archivo por API:
+    igual que con la DIAN, alguien tiene que conseguir el PDF/XML por fuera
+    (el emisor, o el propio portal de la DIAN) y subirlo a NOVA a mano.
+  - La URL base de producción (api.factus.com.co, sin "sandbox") sigue sin
+    confirmar — se usa por inferencia del patrón de nombres.
 
 `datos_crudos` en cada `DocumentoRecibidoPst` conserva el JSON tal cual llegó
-para no perder nada si el mapeo de campos de abajo resulta incompleto —
-en cuanto haya credenciales reales, ajustar `_mapear_factura` contra la
-respuesta real es la única tarea pendiente para terminar de verificar esto.
+para no perder nada si el mapeo de campos de abajo resulta incompleto.
 """
 from datetime import datetime, timedelta
 
@@ -121,7 +127,7 @@ class FactusConectorPST(ConectorPST):
             async with httpx.AsyncClient(timeout=30.0) as client:
                 token = await self._obtener_token(client)
                 respuesta = await client.get(
-                    f"{self.base_url}/v2/receptions/bills",
+                    f"{self.base_url}/v1/receptions/bills",
                     params=params,
                     headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
                 )
@@ -132,10 +138,10 @@ class FactusConectorPST(ConectorPST):
             raise ErrorConectorPst(f"Factus respondió {respuesta.status_code}: {respuesta.text[:500]}")
 
         cuerpo = respuesta.json()
-        items = cuerpo.get("data") if isinstance(cuerpo, dict) else cuerpo
+        items = (cuerpo.get("data") or {}).get("data") if isinstance(cuerpo, dict) else None
         if not isinstance(items, list):
             raise ErrorConectorPst(
-                "La respuesta de Factus no tiene la forma esperada (se esperaba una lista en 'data'); "
+                "La respuesta de Factus no tiene la forma esperada (se esperaba una lista en 'data.data'); "
                 "revisar _mapear_factura contra la respuesta real."
             )
         return [self._mapear_factura(item) for item in items]

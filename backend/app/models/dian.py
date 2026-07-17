@@ -18,7 +18,7 @@ reposo (KMS/HSM) según el pilar Zero Trust del diseño de NOVA.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -48,13 +48,24 @@ class DocumentoDianListado(Base):
     Todavía NO es un DocumentoFinanciero procesado: solo se convierte en uno
     cuando el humano descarga el PDF manualmente (resolviendo el captcha) y lo
     sube a NOVA. `documento_financiero_id` se completa en ese momento.
+
+    La unicidad de `cufe` es POR TENANT, no global: aunque un CUFE real solo
+    debería pertenecer a un receptor, el aislamiento multi-tenant (ver
+    db/session.py, "shared DB, shared schema, row-level tenant") exige que la
+    restricción de unicidad esté siempre acotada por `tenant_id`. Con `cufe`
+    global, el UPSERT de la sincronización (`ON CONFLICT (cufe)`) actualizaba
+    el registro del primer tenant que sincronizó ese documento y nunca lo
+    reasignaba — un documento sincronizado por error bajo un tenant quedaba
+    invisible para siempre para el tenant real, aunque se corrigiera la
+    sesión DIAN vinculada.
     """
     __tablename__ = "documentos_dian_listados"
+    __table_args__ = (UniqueConstraint("tenant_id", "cufe", name="uq_documentos_dian_tenant_cufe"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
 
-    cufe: Mapped[str] = mapped_column(String(120), unique=True, index=True, nullable=False)
+    cufe: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
     partition_key: Mapped[str] = mapped_column(String(120), nullable=True)
     nit_emisor: Mapped[str] = mapped_column(String(20), nullable=True)
     razon_social_emisor: Mapped[str] = mapped_column(String(255), nullable=True)

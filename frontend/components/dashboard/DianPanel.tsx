@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ExternalLink, Link2, UploadCloud } from "lucide-react";
 import { clsx } from "clsx";
+import { ApiError } from "@/lib/api";
 import type { DocumentoDianListado } from "@/lib/api";
 import { listarDocumentosDian, obtenerSesionDian, obtenerUrlPortalDian } from "@/lib/api";
 import { LinkDianModal } from "./LinkDianModal";
@@ -37,6 +38,15 @@ export function DianPanel({ onSubirPdf }: Props) {
     try {
       setDocumentos(await listarDocumentosDian());
     } catch (e) {
+      // 409 = sin sesión vinculada o sesión expirada (ver DianAuthError en el
+      // backend): en vez de dejar al usuario leyendo un mensaje de error,
+      // reabrimos el modal para que pegue un enlace nuevo. Un 502 (portal de
+      // la DIAN caído) sí se muestra como error, porque un enlace nuevo no
+      // lo arregla.
+      if (e instanceof ApiError && e.status === 409) {
+        setVinculado(false);
+        setMostrarModalVinculo(true);
+      }
       setError(e instanceof Error ? e.message : "Error al listar documentos DIAN");
     } finally {
       setCargando(false);
@@ -44,7 +54,13 @@ export function DianPanel({ onSubirPdf }: Props) {
   }
 
   useEffect(() => {
-    verificarSesion().then((ok) => ok && cargarDocumentos());
+    verificarSesion().then((ok) => {
+      if (ok) {
+        cargarDocumentos();
+      } else {
+        setMostrarModalVinculo(true);
+      }
+    });
     obtenerUrlPortalDian().then(setUrlPortal).catch(() => {});
   }, []);
 
@@ -156,7 +172,9 @@ export function DianPanel({ onSubirPdf }: Props) {
           onCerrar={() => setMostrarModalVinculo(false)}
           onVinculado={() => {
             setMostrarModalVinculo(false);
-            verificarSesion().then((ok) => ok && cargarDocumentos());
+            verificarSesion().then((ok) => {
+              if (ok) cargarDocumentos();
+            });
           }}
         />
       )}

@@ -12,6 +12,7 @@ el detalle de qué está confirmado contra el portal real y qué no):
 """
 from datetime import date, datetime, timedelta
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -20,14 +21,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_tenant_id
 from app.db.session import get_db
 from app.models.dian import DocumentoDianListado, SesionDian
+from app.models.usuario import Empresa
 from app.schemas.dian import DocumentoDianListadoOut, SesionDianOut, VincularSesionRequest
 from app.services.dian_portal_connector import (
     DianAuthError,
+    extraer_nit_del_magic_link,
     listar_documentos_recibidos,
     mapear_fila_documento,
     url_portal_documentos_recibidos,
     vincular_sesion,
 )
+
+
+def _solo_digitos(valor: str) -> str:
+    return "".join(c for c in valor if c.isdigit())
 
 router = APIRouter(prefix="/dian", tags=["dian"])
 
@@ -57,6 +64,21 @@ async def vincular_sesion_dian(
     tenant_id: str = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
 ):
+    nit_del_enlace = extraer_nit_del_magic_link(body.magic_link_url)
+
+    empresa_result = await db.execute(select(Empresa).where(Empresa.tenant_id == tenant_id))
+    empresa = empresa_result.scalar_one_or_none()
+
+    if nit_del_enlace and empresa and empresa.nit and _solo_digitos(nit_del_enlace) != _solo_digitos(empresa.nit):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Este enlace pertenece al NIT {nit_del_enlace}, pero {empresa.nombre} está "
+                f"registrada con NIT {empresa.nit}. Verifica que el correo de la DIAN sea el "
+                "de esta empresa antes de vincularlo — no se guardó la sesión."
+            ),
+        )
+
     try:
         cookies = await vincular_sesion(body.magic_link_url)
     except DianAuthError as exc:
@@ -66,10 +88,11 @@ async def vincular_sesion_dian(
     sesion = result.scalar_one_or_none()
 
     if sesion is None:
-        sesion = SesionDian(tenant_id=tenant_id, cookies=cookies)
+        sesion = SesionDian(tenant_id=tenant_id, cookies=cookies, nit_vinculado=nit_del_enlace)
         db.add(sesion)
     else:
         sesion.cookies = cookies
+        sesion.nit_vinculado = nit_del_enlace
         sesion.actualizado_en = datetime.utcnow()
 
     await db.commit()
@@ -117,6 +140,17 @@ async def sincronizar_documentos_recibidos(
         respuesta = await listar_documentos_recibidos(sesion.cookies, fecha_inicio, fecha_fin)
     except DianAuthError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        # El portal de la DIAN falló del lado de ellos (visto en producción: 500
+        # intermitente en GetDocumentsPageToken). Distinguir esto de "sin
+        # resultados" evita que el usuario piense que no tiene documentos
+        # cuando en realidad la DIAN no respondió bien.
+        raise HTTPException(
+            status_code=502,
+            detail=f"El portal de la DIAN no respondió correctamente ({exc.response.status_code}). Intenta de nuevo en unos minutos.",
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Error de red hacia el portal de la DIAN: {exc}") from exc
 
     filas = respuesta.get("data", []) if isinstance(respuesta, dict) else []
 
@@ -137,7 +171,7 @@ async def sincronizar_documentos_recibidos(
             datos_crudos=fila,
         )
         stmt = stmt.on_conflict_do_update(
-            index_elements=[DocumentoDianListado.cufe],
+            index_elements=[DocumentoDianListado.tenant_id, DocumentoDianListado.cufe],
             set_={"datos_crudos": fila, "visto_en": datetime.utcnow()},
         )
         await db.execute(stmt)

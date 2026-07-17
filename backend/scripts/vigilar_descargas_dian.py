@@ -123,12 +123,21 @@ def zip_utilizable(ruta: Path, intentos: int = 5, espera: float = 1.0) -> bool:
 
 def vigilar(cliente: ClienteNova, carpeta: Path, intervalo: float) -> None:
     vistos: set[str] = {p.name for p in carpeta.glob("*.zip")}
+    pendientes: list[dict] = []
     log(f"Vigilando {carpeta} cada {intervalo:.0f}s. Archivos .zip ya existentes se ignoran.")
 
     while True:
-        pendientes = cliente.documentos_pendientes()
-        if pendientes:
-            log(f"{len(pendientes)} documento(s) pendiente(s) de descarga en la cola DIAN.")
+        try:
+            pendientes = cliente.documentos_pendientes()
+            if pendientes:
+                log(f"{len(pendientes)} documento(s) pendiente(s) de descarga en la cola DIAN.")
+        except requests.HTTPError as exc:
+            # La DIAN falla intermitentemente del lado de ellos (500/502
+            # vistos en la práctica en GetDocumentsPageToken). No tiene
+            # sentido matar el vigilante por eso: se seguía usando la
+            # última lista de pendientes conocida y se reintenta refrescarla
+            # en el próximo ciclo.
+            log(f"  No se pudo refrescar la lista de pendientes ({exc.response.status_code}); se reintenta luego.")
 
         for ruta in sorted(carpeta.glob("*.zip")):
             if ruta.name in vistos:
@@ -174,14 +183,17 @@ def main() -> None:
     sesion = cliente.login(args.rol, args.email, args.password)
     log(f"Sesión iniciada como {sesion['nombre']} ({sesion['rol']})")
 
-    if sesion["rol"] == "contador" and not sesion.get("empresa_actual"):
-        if not args.empresa_id:
+    if sesion["rol"] == "contador":
+        if args.empresa_id:
+            # --empresa-id explícito siempre gana sobre la empresa que el login
+            # haya auto-seleccionado (el contador puede administrar varias).
+            sesion = cliente.seleccionar_empresa(args.empresa_id)
+        elif not sesion.get("empresa_actual"):
             empresas = cliente.listar_empresas()
             log("Este contador administra varias empresas. Pasa --empresa-id con una de estas:")
             for e in empresas:
                 log(f"  {e['id']}  {e['nombre']}")
             sys.exit(1)
-        sesion = cliente.seleccionar_empresa(args.empresa_id)
 
     log(f"Empresa activa: {sesion['empresa_actual']['nombre']}")
     vigilar(cliente, carpeta, args.intervalo)

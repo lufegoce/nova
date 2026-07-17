@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     CLAUDE_MODEL: str = "claude-sonnet-5"
 
+    # OCR local para RUTs escaneados sin capa de texto (ver app/services/rut_extractor.py).
+    # Ruta del binario y del directorio de idiomas de Tesseract instalados fuera de
+    # Program Files (sin permiso de escritura ahí) — ver README para instalación.
+    TESSERACT_CMD: str = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    TESSDATA_PREFIX: str = ""
+
     # Multi-tenancy: header con el ID del tenant en cada request
     TENANT_HEADER: str = "X-Tenant-Id"
 

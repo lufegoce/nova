@@ -61,6 +61,14 @@ function headers() {
   return { "Content-Type": "application/json" };
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function manejarError(res: Response, mensajePorDefecto: string) {
   if (res.ok) return;
   let detalle = mensajePorDefecto;
@@ -69,7 +77,7 @@ async function manejarError(res: Response, mensajePorDefecto: string) {
   } catch {
     // el cuerpo no era JSON; se usa el mensaje por defecto
   }
-  throw new Error(detalle);
+  throw new ApiError(res.status, detalle);
 }
 
 // ---------------------------------------------------------------------------
@@ -389,7 +397,13 @@ export async function obtenerPdfBlobUrl(documentoId: string): Promise<string> {
   return URL.createObjectURL(blob);
 }
 
-export async function vincularSesionDian(magicLinkUrl: string): Promise<{ nit_vinculado: string | null }> {
+export interface SesionDian {
+  nit_vinculado: string | null;
+  vinculado_en: string;
+  actualizado_en: string;
+}
+
+export async function vincularSesionDian(magicLinkUrl: string): Promise<SesionDian> {
   const res = await fetch(`${API_BASE}/dian/vincular`, {
     method: "POST",
     headers: headers(),
@@ -400,7 +414,7 @@ export async function vincularSesionDian(magicLinkUrl: string): Promise<{ nit_vi
   return res.json();
 }
 
-export async function obtenerSesionDian(): Promise<{ nit_vinculado: string | null } | null> {
+export async function obtenerSesionDian(): Promise<SesionDian | null> {
   const res = await fetch(`${API_BASE}/dian/sesion`, { headers: headers(), credentials: "include", cache: "no-store" });
   if (res.status === 404) return null;
   await manejarError(res, "Error al consultar la sesión DIAN");

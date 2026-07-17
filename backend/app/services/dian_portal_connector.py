@@ -31,7 +31,7 @@ el portal real, resuelve el captcha y descarga; luego sube el PDF a NOVA
 """
 import re
 from datetime import date
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -62,6 +62,26 @@ def _validar_magic_link(magic_link_url: str) -> None:
             "La URL no corresponde a un magic-link válido del catálogo DIAN "
             f"({DIAN_AUTH_TOKEN_HOST}/User/AuthToken)."
         )
+
+
+def extraer_nit_del_magic_link(magic_link_url: str) -> str | None:
+    """
+    El magic-link trae el NIT del titular de la cuenta DIAN en el parámetro
+    `rk` (ej. .../User/AuthToken?pk=...|...&rk=901154951&token=...). Se
+    confirmó comparando ese valor contra el ReceiverCode real devuelto por
+    GetDocumentsPageToken para esa misma sesión — coinciden.
+
+    Esto permite validar, ANTES de guardar la cookie de sesión, que el
+    enlace pegado corresponde al NIT de la empresa/tenant que lo está
+    vinculando — sin esto, cualquier magic-link (de cualquier empresa) queda
+    aceptado silenciosamente para el tenant activo, con el riesgo de que un
+    usuario pegue por error (o a propósito) el enlace de otra compañía.
+    """
+    query = parse_qs(urlparse(magic_link_url).query)
+    valores = query.get("rk")
+    if not valores or not valores[0].strip():
+        return None
+    return valores[0].strip()
 
 
 async def vincular_sesion(magic_link_url: str) -> dict:
