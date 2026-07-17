@@ -25,7 +25,6 @@ Uso:
         --password nova1234
 """
 import argparse
-import io
 import re
 import sys
 import time
@@ -34,6 +33,8 @@ from pathlib import Path
 
 import requests
 
+from _cliente_nova import ClienteNovaBase, iniciar_sesion
+
 PATRON_CUFE_CANDIDATO = re.compile(r"[0-9a-fA-F]{40,96}")
 
 
@@ -41,26 +42,7 @@ def log(msg: str) -> None:
     print(f"[vigilante-dian] {msg}", flush=True)
 
 
-class ClienteNova:
-    def __init__(self, api_base: str):
-        self.api_base = api_base.rstrip("/")
-        self.sesion = requests.Session()
-
-    def login(self, rol: str, email: str, password: str) -> dict:
-        res = self.sesion.post(f"{self.api_base}/auth/login/{rol}", json={"email": email, "password": password})
-        res.raise_for_status()
-        return res.json()
-
-    def listar_empresas(self) -> list[dict]:
-        res = self.sesion.get(f"{self.api_base}/auth/empresas")
-        res.raise_for_status()
-        return res.json()
-
-    def seleccionar_empresa(self, empresa_id: str) -> dict:
-        res = self.sesion.post(f"{self.api_base}/auth/empresas/{empresa_id}/seleccionar")
-        res.raise_for_status()
-        return res.json()
-
+class ClienteNova(ClienteNovaBase):
     def documentos_pendientes(self) -> list[dict]:
         res = self.sesion.get(f"{self.api_base}/dian/documentos-recibidos")
         res.raise_for_status()
@@ -78,10 +60,7 @@ class ClienteNova:
             datos["numero_factura"] = pendiente["numero_documento"]
 
         with ruta_zip.open("rb") as f:
-            archivos = {"archivo": (ruta_zip.name, f, "application/zip")}
-            res = self.sesion.post(f"{self.api_base}/facturas/ingesta-pdf", data=datos, files=archivos)
-        res.raise_for_status()
-        return res.json()
+            return self.subir_pdf(ruta_zip.name, f.read(), datos, content_type="application/zip")
 
 
 def extraer_texto_zip(ruta_zip: Path) -> str:
@@ -183,22 +162,7 @@ def main() -> None:
         sys.exit(f"La carpeta {carpeta} no existe")
 
     cliente = ClienteNova(args.api_base)
-    sesion = cliente.login(args.rol, args.email, args.password)
-    log(f"Sesión iniciada como {sesion['nombre']} ({sesion['rol']})")
-
-    if sesion["rol"] == "contador":
-        if args.empresa_id:
-            # --empresa-id explícito siempre gana sobre la empresa que el login
-            # haya auto-seleccionado (el contador puede administrar varias).
-            sesion = cliente.seleccionar_empresa(args.empresa_id)
-        elif not sesion.get("empresa_actual"):
-            empresas = cliente.listar_empresas()
-            log("Este contador administra varias empresas. Pasa --empresa-id con una de estas:")
-            for e in empresas:
-                log(f"  {e['id']}  {e['nombre']}")
-            sys.exit(1)
-
-    log(f"Empresa activa: {sesion['empresa_actual']['nombre']}")
+    iniciar_sesion(cliente, args.rol, args.email, args.password, args.empresa_id, log)
     vigilar(cliente, carpeta, args.intervalo)
 
 
