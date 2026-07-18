@@ -18,6 +18,12 @@ function hoy(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function formatearFecha(valor: string | null): string {
+  if (!valor) return "—";
+  const fecha = new Date(valor);
+  return Number.isNaN(fecha.getTime()) ? "—" : fecha.toLocaleDateString("es-CO");
+}
+
 interface Props {
   onSubirPdf: (origen: DocumentoDianListado) => void;
 }
@@ -145,23 +151,41 @@ export function DianPanel({ onSubirPdf }: Props) {
       )}
 
       {vinculado && documentos.length > 0 && (
-        <div className="overflow-hidden rounded-lg border border-nova-border">
-          <table className="w-full text-left text-xs">
+        <div className="overflow-x-auto rounded-lg border border-nova-border">
+          <table className="w-full min-w-[1100px] text-left text-xs">
             <thead className="bg-nova-bg text-gray-400">
               <tr>
-                <th className="px-3 py-2">CUFE</th>
+                <th className="px-3 py-2">Recepción</th>
+                <th className="px-3 py-2">Fecha</th>
+                <th className="px-3 py-2">Prefijo</th>
+                <th className="px-3 py-2">Nº documento</th>
+                <th className="px-3 py-2">Tipo</th>
+                <th className="px-3 py-2">NIT Emisor</th>
                 <th className="px-3 py-2">Emisor</th>
-                <th className="px-3 py-2">Número</th>
-                <th className="px-3 py-2">Estado</th>
+                <th className="px-3 py-2">NIT Receptor</th>
+                <th className="px-3 py-2">Receptor</th>
+                <th className="px-3 py-2">Resultado</th>
+                <th className="px-3 py-2">Estado RADIAN</th>
+                <th className="px-3 py-2">Estado NOVA</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
               {documentos.map((doc) => (
                 <tr key={doc.id} className="border-t border-nova-border">
-                  <td className="px-3 py-2 font-mono text-gray-400">{doc.cufe.slice(0, 12)}…</td>
-                  <td className="px-3 py-2">{doc.razon_social_emisor ?? doc.nit_emisor ?? "—"}</td>
-                  <td className="px-3 py-2">{doc.numero_documento ?? "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-gray-400">{formatearFecha(doc.fecha_recepcion)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-gray-400">{formatearFecha(doc.fecha_emision)}</td>
+                  <td className="px-3 py-2">{doc.prefijo ?? "—"}</td>
+                  <td className="px-3 py-2" title={doc.cufe}>
+                    {doc.numero_documento ?? "—"}
+                  </td>
+                  <td className="px-3 py-2">{doc.tipo ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono">{doc.nit_emisor ?? "—"}</td>
+                  <td className="px-3 py-2">{doc.razon_social_emisor ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono">{doc.nit_receptor ?? "—"}</td>
+                  <td className="px-3 py-2">{doc.razon_social_receptor ?? "—"}</td>
+                  <td className="px-3 py-2">{doc.resultado ?? "—"}</td>
+                  <td className="px-3 py-2">{doc.estado_radian ?? "—"}</td>
                   <td className="px-3 py-2">
                     <span
                       className={clsx(

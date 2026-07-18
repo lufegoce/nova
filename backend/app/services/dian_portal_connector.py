@@ -16,9 +16,9 @@ Alcance verificado manualmente (ver README backend, sección "Integración DIAN"
      `__RequestVerificationToken` (hidden input + cookie pareja) que debe
      reenviarse en el body del POST o la DIAN responde 500. Por eso esta
      función primero hace un GET de "precarga" a `/Document/Received` para
-     obtener un token fresco antes de cada listado. El esquema exacto de los
-     nombres de columna DENTRO de cada fila de `data[]` sigue sin confirmar
-     (ver TODO en `mapear_fila_documento`).
+     obtener un token fresco antes de cada listado. El esquema de columnas
+     DENTRO de cada fila de `data[]` está CONFIRMADO desde 2026-07-17 contra
+     una fila real (ver `mapear_fila_documento`).
 
 Deliberadamente NO se automatiza la descarga de PDFs: cada acción de descarga
 (`/Document/GetFilePdf`, `/Document/DownloadZipFiles`, etc.) exige un token de
@@ -174,11 +174,20 @@ async def listar_documentos_recibidos(
 def mapear_fila_documento(fila: dict) -> dict:
     """
     Mapea una fila cruda de la respuesta de GetDocumentsPageToken a los campos
-    de DocumentoDianListado. Los nombres de clave son MEJOR ESFUERZO (inferidos
-    de los `data-*` y `row.X` usados en el JS del portal), no confirmados con
-    una respuesta real. Por eso cada valor tiene múltiples candidatos y, si
-    ninguno aplica, queda en None sin romper el flujo — la fila cruda completa
-    siempre se guarda en `datos_crudos` para poder ajustar el mapeo después.
+    de DocumentoDianListado.
+
+    CONFIRMADO (2026-07-17) contra una fila real capturada en producción
+    (sincronización de "INGENIERÍA Y TECNOLOGÍA XPRESS S.A.S."): Id, Serie,
+    Number, SenderCode, SenderName, StatusName, TotalAmount, EmissionDate,
+    ReceiverCode, ReceiverName, ReceptionDate, DocumentTypeName y
+    RadianStatusName son las claves reales — reemplaza el mapeo anterior de
+    "mejor esfuerzo" que nunca se había verificado. Las fechas (EmissionDate,
+    ReceptionDate) vienen en formato .NET `/Date(<millis>)/`, no ISO — ver
+    `_parsear_fecha_dotnet` en app/api/routes/dian.py.
+
+    Se mantienen candidatos alternativos (ej. "Cufe", "CUFE") por si el
+    portal cambia de forma entre requests, pero ya no son la apuesta
+    principal. La fila cruda completa se guarda igual en `datos_crudos`.
     """
     def primero(*claves):
         for clave in claves:
@@ -187,13 +196,20 @@ def mapear_fila_documento(fila: dict) -> dict:
         return None
 
     return {
-        "cufe": primero("Cufe", "CUFE", "TrackId", "DocumentKey", "Id"),
+        "cufe": primero("Id", "Cufe", "CUFE", "TrackId", "DocumentKey"),
         "partition_key": primero("PartitionKey", "partitionKey"),
+        "prefijo": primero("Serie", "Prefijo"),
+        "numero_documento": primero("Number", "SerieAndNumber", "DocumentNumber"),
+        "tipo": primero("DocumentTypeName", "DocumentTypeId"),
         "nit_emisor": primero("SenderCode", "NitEmisor", "Sender"),
         "razon_social_emisor": primero("SenderName", "RazonSocialEmisor", "SenderFullName"),
-        "numero_documento": primero("SerieAndNumber", "Number", "DocumentNumber"),
+        "nit_receptor": primero("ReceiverCode", "NitReceptor", "Receiver"),
+        "razon_social_receptor": primero("ReceiverName", "RazonSocialReceptor", "ReceiverFullName"),
+        "resultado": primero("StatusName", "Resultado"),
+        "estado_radian": primero("RadianStatusName", "EstadoRadian"),
         "fecha_emision": primero("EmissionDate", "FechaEmision"),
-        "total": primero("Total", "PayableAmount", "TotalAmount"),
+        "fecha_recepcion": primero("ReceptionDate", "FechaRecepcion"),
+        "total": primero("TotalAmount", "Total", "PayableAmount"),
     }
 
 

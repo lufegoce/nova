@@ -10,7 +10,8 @@ el detalle de qué está confirmado contra el portal real y qué no):
      real (link "Abrir en DIAN"), resolver el captcha y descargarlo él mismo,
      y luego subirlo a NOVA vía /facturas/ingesta-pdf.
 """
-from datetime import date, datetime, timedelta
+import re
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,15 +40,30 @@ def _solo_digitos(valor: str) -> str:
 router = APIRouter(prefix="/dian", tags=["dian"])
 
 
+_PATRON_FECHA_DOTNET = re.compile(r"/Date\((-?\d+)\)/")
+
+
 def _parsear_fecha(valor) -> datetime | None:
-    """Coerción defensiva: el formato de fecha real del portal no está confirmado."""
+    """
+    CONFIRMADO (2026-07-17) contra una fila real: el portal serializa fechas
+    en formato .NET JSON `/Date(<millis-desde-epoch-UTC>)/` (ej.
+    "/Date(1783987200000)/"), no ISO — resultado de que el backend de la DIAN
+    sigue usando el serializador JSON clásico de ASP.NET. Se mantienen los
+    demás formatos como respaldo por si el portal cambia de forma.
+    """
     if not valor:
         return None
     if isinstance(valor, datetime):
         return valor
     texto = str(valor).strip()
+
+    coincidencia = _PATRON_FECHA_DOTNET.match(texto)
+    if coincidencia:
+        millis = int(coincidencia.group(1))
+        return datetime.fromtimestamp(millis / 1000, tz=timezone.utc).replace(tzinfo=None)
+
     try:
-        return datetime.fromisoformat(texto.replace("Z", "+00:00"))
+        return datetime.fromisoformat(texto.replace("Z", "+00:00")).astimezone(timezone.utc).replace(tzinfo=None)
     except ValueError:
         pass
     for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"):
@@ -168,20 +184,38 @@ async def sincronizar_documentos_recibidos(
         if not mapeada["cufe"]:
             continue  # sin identificador único no se puede deduplicar; se descarta la fila
 
-        stmt = pg_insert(DocumentoDianListado).values(
+        campos = dict(
             tenant_id=tenant_id,
             cufe=mapeada["cufe"],
             partition_key=mapeada["partition_key"],
+            prefijo=mapeada["prefijo"],
+            numero_documento=mapeada["numero_documento"],
+            tipo=mapeada["tipo"],
             nit_emisor=mapeada["nit_emisor"],
             razon_social_emisor=mapeada["razon_social_emisor"],
-            numero_documento=mapeada["numero_documento"],
+            nit_receptor=mapeada["nit_receptor"],
+            razon_social_receptor=mapeada["razon_social_receptor"],
+            resultado=mapeada["resultado"],
+            estado_radian=mapeada["estado_radian"],
             fecha_emision=_parsear_fecha(mapeada["fecha_emision"]),
+            fecha_recepcion=_parsear_fecha(mapeada["fecha_recepcion"]),
             total=str(mapeada["total"]) if mapeada["total"] is not None else None,
             datos_crudos=fila,
         )
+        stmt = pg_insert(DocumentoDianListado).values(**campos)
         stmt = stmt.on_conflict_do_update(
             index_elements=[DocumentoDianListado.tenant_id, DocumentoDianListado.cufe],
-            set_={"datos_crudos": fila, "visto_en": datetime.utcnow()},
+            # Se refresca todo lo que puede cambiar entre sincronizaciones —
+            # en particular resultado/estado_radian, que reflejan eventos
+            # RADIAN que se van resolviendo con el tiempo (ej. "Pendiente" ->
+            # "Aprobado"). Antes solo se actualizaba datos_crudos, así que la
+            # UI se quedaba mostrando el estado del primer sync para siempre.
+            set_={
+                campo: valor
+                for campo, valor in campos.items()
+                if campo not in ("tenant_id", "cufe")
+            }
+            | {"visto_en": datetime.utcnow()},
         )
         await db.execute(stmt)
 

@@ -47,10 +47,17 @@ export interface EventoAuditoria {
 export interface DocumentoDianListado {
   id: string;
   cufe: string;
+  prefijo: string | null;
+  numero_documento: string | null;
+  tipo: string | null;
   nit_emisor: string | null;
   razon_social_emisor: string | null;
-  numero_documento: string | null;
+  nit_receptor: string | null;
+  razon_social_receptor: string | null;
+  resultado: string | null;
+  estado_radian: string | null;
   fecha_emision: string | null;
+  fecha_recepcion: string | null;
   total: string | null;
   estado_descarga: "pendiente" | "descargado";
   documento_financiero_id: string | null;

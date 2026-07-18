@@ -64,6 +64,40 @@ async def _migrar_cufe_unico_por_tenant(conn):
         )
 
 
+_COLUMNAS_NUEVAS_DOCUMENTOS_DIAN = {
+    "prefijo": "VARCHAR(20)",
+    "tipo": "VARCHAR(120)",
+    "nit_receptor": "VARCHAR(20)",
+    "razon_social_receptor": "VARCHAR(255)",
+    "resultado": "VARCHAR(120)",
+    "estado_radian": "VARCHAR(120)",
+    "fecha_recepcion": "TIMESTAMP WITHOUT TIME ZONE",
+}
+
+
+async def _migrar_columnas_documentos_dian(conn):
+    """
+    Igual que _migrar_cufe_unico_por_tenant: create_all() no agrega columnas
+    a una tabla que ya existe. Estas columnas se agregaron al confirmar el
+    esquema real de GetDocumentsPageToken (ver mapear_fila_documento en
+    app/services/dian_portal_connector.py) — sin este ALTER TABLE, una base
+    creada antes de esa fecha se queda sin prefijo/tipo/receptor/resultado/
+    estado_radian/fecha_recepcion aunque el código ya los espere.
+    """
+    for columna, tipo_sql in _COLUMNAS_NUEVAS_DOCUMENTOS_DIAN.items():
+        existe = (
+            await conn.execute(
+                text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = 'documentos_dian_listados' AND column_name = :columna"
+                ),
+                {"columna": columna},
+            )
+        ).first()
+        if not existe:
+            await conn.execute(text(f"ALTER TABLE documentos_dian_listados ADD COLUMN {columna} {tipo_sql}"))
+
+
 async def _crear_tablas_si_no_existen():
     """
     Creación de esquema para el MVP local. En producción, reemplazar por
@@ -72,6 +106,7 @@ async def _crear_tablas_si_no_existen():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _migrar_cufe_unico_por_tenant(conn)
+        await _migrar_columnas_documentos_dian(conn)
 
     async with AsyncSessionLocal() as sesion:
         await sembrar_datos_prueba(sesion)

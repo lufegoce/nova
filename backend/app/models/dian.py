@@ -67,10 +67,17 @@ class DocumentoDianListado(Base):
 
     cufe: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
     partition_key: Mapped[str] = mapped_column(String(120), nullable=True)
+    prefijo: Mapped[str] = mapped_column(String(20), nullable=True)
+    numero_documento: Mapped[str] = mapped_column(String(50), nullable=True)
+    tipo: Mapped[str] = mapped_column(String(120), nullable=True)
     nit_emisor: Mapped[str] = mapped_column(String(20), nullable=True)
     razon_social_emisor: Mapped[str] = mapped_column(String(255), nullable=True)
-    numero_documento: Mapped[str] = mapped_column(String(50), nullable=True)
+    nit_receptor: Mapped[str] = mapped_column(String(20), nullable=True)
+    razon_social_receptor: Mapped[str] = mapped_column(String(255), nullable=True)
+    resultado: Mapped[str] = mapped_column(String(120), nullable=True)
+    estado_radian: Mapped[str] = mapped_column(String(120), nullable=True)
     fecha_emision: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    fecha_recepcion: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     total: Mapped[str] = mapped_column(String(30), nullable=True)  # texto crudo: formato exacto del portal sin confirmar
 
     estado_descarga: Mapped[str] = mapped_column(String(20), default="pendiente")  # pendiente | descargado

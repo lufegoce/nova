@@ -19,10 +19,17 @@ class DocumentoDianListadoOut(BaseModel):
 
     id: uuid.UUID
     cufe: str
+    prefijo: str | None = None
+    numero_documento: str | None = None
+    tipo: str | None = None
     nit_emisor: str | None = None
     razon_social_emisor: str | None = None
-    numero_documento: str | None = None
+    nit_receptor: str | None = None
+    razon_social_receptor: str | None = None
+    resultado: str | None = None
+    estado_radian: str | None = None
     fecha_emision: datetime | None = None
+    fecha_recepcion: datetime | None = None
     total: str | None = None
     estado_descarga: str
     documento_financiero_id: uuid.UUID | None = None
